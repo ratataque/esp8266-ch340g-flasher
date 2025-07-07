@@ -142,7 +142,7 @@ fn test_sync_command(port: &mut std::fs::File) -> io::Result<()> {
     // Send sync frame
     port.write_all(&sync_frame)?;
     port.flush()?;
-    println!("Sent sync frame: {:?}", sync_frame);
+    println!("Sent sync frame: {:02X?}", sync_frame);
 
     let mut buffer = [0u8; 128];
     let mut response = Vec::new();
