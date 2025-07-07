@@ -131,22 +131,46 @@ fn test_sync_command(port: &mut std::fs::File) -> io::Result<()> {
 
     // SLIP-encoded ESP_SYNC command
     let sync_frame = vec![
+        0xC0, // SLIP start
+        0x00, // Command: ESP_SYNC
+        0x08, // Length
         0x07, 0x07, 0x12, 0x20, // Sync header
         0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, // 32 bytes of 0x55
         0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
-        0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, // SLIP end
+        0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0xC0, // SLIP end
     ];
-
     // Send sync frame
     port.write_all(&sync_frame)?;
     port.flush()?;
     println!("Sent sync frame: {:?}", sync_frame);
 
     let mut buffer = [0u8; 128];
+    let mut response = Vec::new();
 
-    let n = port.read(&mut buffer)?;
-    println!("Received {} bytes: {:02X?}", n, &buffer[..n]);
-    println!("No data received after retries");
+    for _ in 0..3 {
+        match port.read(&mut buffer) {
+            Ok(bytes_read) if bytes_read > 0 => {
+                response.extend_from_slice(&buffer[..bytes_read]);
+                println!("Received: {:02X?}", response);
+                // Check for valid SLIP response
+                if buffer[0] == 0xC0 && bytes_read > 1 && buffer[1] == 0x00 {
+                    println!("✓ ESP8266 responded to sync command!");
+                } else {
+                    println!("✗ Unexpected response format");
+                }
+                return Ok(());
+            }
+            Ok(_) => {
+                println!("No data received, retrying...");
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            Err(e) => {
+                println!("Error reading: {:?}", e);
+                return Err(e);
+            }
+        }
+    }
+
     Ok(())
 }
 
