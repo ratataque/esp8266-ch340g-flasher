@@ -1,13 +1,19 @@
 use nix::sys::termios;
 use nix::sys::termios::BaudRate;
-use std::io;
 use std::fs::File;
+use std::io::{self, Read, Write};
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn speed_to_baudrate(speed: termios::BaudRate) -> Option<termios::BaudRate> {
     Some(speed)
 }
 
-#[cfg(any(target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "dragonfly", target_os = "macos"))]
+#[cfg(any(
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "dragonfly",
+    target_os = "macos"
+))]
 fn speed_to_baudrate(speed: u32) -> Option<termios::BaudRate> {
     match speed {
         0 => Some(BaudRate::B0),
@@ -33,7 +39,7 @@ fn speed_to_baudrate(speed: u32) -> Option<termios::BaudRate> {
         _ => None,
     }
 }
-fn configure_and_test_serial_port(port_path: &str) -> io::Result<()> {
+fn configure_and_test_serial_port(port_path: &str, speed: termios::BaudRate) -> io::Result<()> {
     println!("Opening serial port: {}", port_path);
 
     let mut port = File::options().read(true).write(true).open(port_path)?;
@@ -44,9 +50,9 @@ fn configure_and_test_serial_port(port_path: &str) -> io::Result<()> {
         termios::tcgetattr(&port).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
     // Set baud rate to 9600 (Note: ESP8266 bootloader typically uses 115200)
-    termios::cfsetospeed(&mut termios, termios::BaudRate::B1152000)
+    termios::cfsetospeed(&mut termios, speed)
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-    termios::cfsetispeed(&mut termios, termios::BaudRate::B1152000)
+    termios::cfsetispeed(&mut termios, speed)
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
     // Set timeout (e.g., 1 second = 10 deciseconds)
@@ -82,7 +88,7 @@ fn configure_and_test_serial_port(port_path: &str) -> io::Result<()> {
     // Test methods:
 
     // 1. Verify configuration by reading it back
-    test_configuration_readback(&port)?;
+    test_configuration_readback(&port, speed)?;
 
     // 2. Test sync command
     test_sync_command(&mut port)?;
@@ -91,7 +97,7 @@ fn configure_and_test_serial_port(port_path: &str) -> io::Result<()> {
 }
 
 // Test 1: Verify the configuration was applied
-fn test_configuration_readback(port: &File) -> io::Result<()> {
+fn test_configuration_readback(port: &File, speed: termios::BaudRate) -> io::Result<()> {
     println!("\n=== Configuration Verification ===");
 
     let termios = termios::tcgetattr(port).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
@@ -106,7 +112,7 @@ fn test_configuration_readback(port: &File) -> io::Result<()> {
     println!("Input speed: {:?}", ispeed);
 
     // Check if speeds match what we set
-    if ospeed == BaudRate::B9600 && ispeed == BaudRate::B9600 {
+    if ospeed == speed && ispeed == speed {
         println!("✓ Baud rate configuration verified!");
     } else {
         println!("✗ Baud rate mismatch!");
@@ -167,7 +173,7 @@ fn test_sync_command(port: &mut File) -> io::Result<()> {
 }
 
 fn main() -> io::Result<()> {
-    let port_path = "/dev/cu.wchusbserial10"; // Change this to your actual port
+    let port_path = "/dev/ttyUSB0"; // Change this to your actual port
 
     // Check if port exists
     if !std::path::Path::new(port_path).exists() {
@@ -175,7 +181,7 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    configure_and_test_serial_port(port_path)?;
+    configure_and_test_serial_port(port_path, termios::BaudRate::B115200)?;
 
     Ok(())
 }
