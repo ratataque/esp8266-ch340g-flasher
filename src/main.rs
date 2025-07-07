@@ -1,7 +1,13 @@
-use nix::sys::termios;
-use nix::sys::termios::BaudRate;
-use std::fs::File;
+use nix::sys::termios::{self, BaudRate};
 use std::io::{self, Read, Write};
+use serde::Deserialize;
+use config::Config;
+
+#[derive(Debug, Deserialize)]
+struct Settings {
+    serial_interface: String,
+}
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn speed_to_baudrate(speed: termios::BaudRate) -> Option<termios::BaudRate> {
     Some(speed)
@@ -42,7 +48,7 @@ fn speed_to_baudrate(speed: u32) -> Option<termios::BaudRate> {
 fn configure_and_test_serial_port(port_path: &str, speed: termios::BaudRate) -> io::Result<()> {
     println!("Opening serial port: {}", port_path);
 
-    let mut port = File::options().read(true).write(true).open(port_path)?;
+    let mut port = std::fs::File::options().read(true).write(true).open(port_path)?;
 
     // Configure the port
     println!("Configuring serial port...");
@@ -97,7 +103,7 @@ fn configure_and_test_serial_port(port_path: &str, speed: termios::BaudRate) -> 
 }
 
 // Test 1: Verify the configuration was applied
-fn test_configuration_readback(port: &File, speed: termios::BaudRate) -> io::Result<()> {
+fn test_configuration_readback(port: &std::fs::File, speed: termios::BaudRate) -> io::Result<()> {
     println!("\n=== Configuration Verification ===");
 
     let termios = termios::tcgetattr(port).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
@@ -121,7 +127,7 @@ fn test_configuration_readback(port: &File, speed: termios::BaudRate) -> io::Res
     Ok(())
 }
 
-fn test_sync_command(port: &mut File) -> io::Result<()> {
+fn test_sync_command(port: &mut std::fs::File) -> io::Result<()> {
     println!("\n=== ESP8266 Bootloader Sync Test ===");
 
     // SLIP-encoded ESP_SYNC command
@@ -172,16 +178,32 @@ fn test_sync_command(port: &mut File) -> io::Result<()> {
     Ok(())
 }
 
+fn config_setup() -> Result<Settings, config::ConfigError> {
+    Config::builder()
+        .add_source(config::File::with_name("config/default.toml").required(true))
+        .add_source(config::File::with_name("config/local.toml").required(false))
+        // .add_source(Environment::default().separator("__"))
+        .build()?
+        .try_deserialize()
+}
+
 fn main() -> io::Result<()> {
-    let port_path = "/dev/ttyUSB0"; // Change this to your actual port
+    // Load configuration
+    let settings: Settings = match config_setup() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error loading configuration: {}", e);
+            return Ok(());
+        }
+    };
 
     // Check if port exists
-    if !std::path::Path::new(port_path).exists() {
-        eprintln!("Error: Serial port {} does not exist", port_path);
+    if !std::path::Path::new(&settings.serial_interface).exists() {
+        eprintln!("Error: Serial port {} does not exist", &settings.serial_interface);
         return Ok(());
     }
 
-    configure_and_test_serial_port(port_path, termios::BaudRate::B115200)?;
+    configure_and_test_serial_port(&settings.serial_interface, termios::BaudRate::B115200)?;
 
     Ok(())
 }
