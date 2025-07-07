@@ -1,7 +1,7 @@
-use nix::sys::termios::{self, BaudRate};
-use std::io::{self, Read, Write};
-use serde::Deserialize;
 use config::Config;
+use nix::sys::termios::{self, BaudRate};
+use serde::Deserialize;
+use std::io::{self, Read, Write};
 
 #[derive(Debug, Deserialize)]
 struct Settings {
@@ -49,7 +49,10 @@ fn speed_to_baudrate(speed: u32) -> Option<termios::BaudRate> {
 fn configure_and_test_serial_port(port_path: &str, speed: termios::BaudRate) -> io::Result<()> {
     println!("Opening serial port: {}", port_path);
 
-    let mut port = std::fs::File::options().read(true).write(true).open(port_path)?;
+    let mut port = std::fs::File::options()
+        .read(true)
+        .write(true)
+        .open(port_path)?;
 
     // Configure the port
     println!("Configuring serial port...");
@@ -130,14 +133,19 @@ fn test_sync_command(port: &mut std::fs::File) -> io::Result<()> {
     println!("\n=== ESP8266 Bootloader Sync Test ===");
 
     // SLIP-encoded ESP_SYNC command
+    // https://docs.espressif.com/projects/esptool/en/latest/esp8266/advanced-topics/serial-protocol.html
+    // https://docs.espressif.com/projects/esptool/en/latest/esp8266/advanced-topics/serial-protocol.html#commands
     let sync_frame = vec![
         0xC0, // SLIP start
-        0x00, // Command: ESP_SYNC
-        0x08, // Length
+        0x00, // Always 0x00 for requests
+        0x08, // command sync
+        0x24, 0x00, // 0x24 is the length of the payload (0x00)
+        0x00, 0x00, 0x00, 0x00, // checksum
         0x07, 0x07, 0x12, 0x20, // Sync header
-        0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, // 32 bytes of 0x55
         0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
-        0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0xC0, // SLIP end
+        0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+        0x55, // 32 bytes of 0x55 0x55,
+        0xC0, // SLIP end
     ];
     // Send sync frame
     port.write_all(&sync_frame)?;
@@ -155,6 +163,7 @@ fn test_sync_command(port: &mut std::fs::File) -> io::Result<()> {
                 if buffer[0] == 0xC0 && n > 1 && buffer[1] == 0x00 {
                     println!("✓ ESP8266 responded to sync command!");
                 }
+                // break;
             }
             Err(e) => {
                 println!("Error reading: {:?}", e);
@@ -189,7 +198,10 @@ fn main() -> io::Result<()> {
 
     // Check if port exists
     if !std::path::Path::new(&settings.serial_interface).exists() {
-        eprintln!("Error: Serial port {} does not exist", &settings.serial_interface);
+        eprintln!(
+            "Error: Serial port {} does not exist",
+            &settings.serial_interface
+        );
         return Ok(());
     }
 
