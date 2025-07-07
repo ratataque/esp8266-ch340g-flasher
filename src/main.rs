@@ -149,20 +149,12 @@ fn test_sync_command(port: &mut std::fs::File) -> io::Result<()> {
 
     for _ in 0..3 {
         match port.read(&mut buffer) {
-            Ok(bytes_read) if bytes_read > 0 => {
-                response.extend_from_slice(&buffer[..bytes_read]);
-                println!("Received: {:02X?}", response);
-                // Check for valid SLIP response
-                if buffer[0] == 0xC0 && bytes_read > 1 && buffer[1] == 0x00 {
+            Ok(0) => break, // EOF or no more data
+            Ok(n) => {
+                response.extend_from_slice(&buffer[..n]);
+                if buffer[0] == 0xC0 && n > 1 && buffer[1] == 0x00 {
                     println!("✓ ESP8266 responded to sync command!");
-                } else {
-                    println!("✗ Unexpected response format");
                 }
-                return Ok(());
-            }
-            Ok(_) => {
-                println!("No data received, retrying...");
-                std::thread::sleep(std::time::Duration::from_millis(500));
             }
             Err(e) => {
                 println!("Error reading: {:?}", e);
@@ -170,6 +162,8 @@ fn test_sync_command(port: &mut std::fs::File) -> io::Result<()> {
             }
         }
     }
+
+    println!("Received: {:02X?}", response);
 
     Ok(())
 }
