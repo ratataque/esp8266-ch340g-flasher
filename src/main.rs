@@ -1,6 +1,33 @@
 use std::fs::File;
 use std::io::{self};
 
+use nix::sys::termios::BaudRate;
+
+fn u32_to_baudrate(val: u32) -> Option<BaudRate> {
+    match val {
+        0 => Some(BaudRate::B0),
+        50 => Some(BaudRate::B50),
+        75 => Some(BaudRate::B75),
+        110 => Some(BaudRate::B110),
+        134 => Some(BaudRate::B134),
+        150 => Some(BaudRate::B150),
+        200 => Some(BaudRate::B200),
+        300 => Some(BaudRate::B300),
+        600 => Some(BaudRate::B600),
+        1200 => Some(BaudRate::B1200),
+        1800 => Some(BaudRate::B1800),
+        2400 => Some(BaudRate::B2400),
+        4800 => Some(BaudRate::B4800),
+        9600 => Some(BaudRate::B9600),
+        19200 => Some(BaudRate::B19200),
+        38400 => Some(BaudRate::B38400),
+        57600 => Some(BaudRate::B57600),
+        115200 => Some(BaudRate::B115200),
+        230400 => Some(BaudRate::B230400),
+        _ => None,
+    }
+}
+
 fn configure_and_test_serial_port(port_path: &str) -> io::Result<()> {
     use nix::sys::termios;
 
@@ -41,14 +68,17 @@ fn test_configuration_readback(port: &File) -> io::Result<()> {
 
     let termios = termios::tcgetattr(port).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-    let ospeed = termios::cfgetospeed(&termios);
-    let ispeed = termios::cfgetispeed(&termios);
+    let ospeed_raw = termios::cfgetospeed(&termios);
+    let ispeed_raw = termios::cfgetispeed(&termios);
+
+    let ospeed = u32_to_baudrate(ospeed_raw as u32);
+    let ispeed = u32_to_baudrate(ispeed_raw as u32);
 
     println!("Output speed: {:?}", ospeed);
     println!("Input speed: {:?}", ispeed);
 
     // Check if speeds match what we set
-    if ospeed == termios::BaudRate::B9600 && ispeed == termios::BaudRate::B9600 {
+    if ospeed == Some(termios::BaudRate::B9600) && ispeed == Some(termios::BaudRate::B9600) {
         println!("✓ Baud rate configuration verified!");
     } else {
         println!("✗ Baud rate mismatch!");
