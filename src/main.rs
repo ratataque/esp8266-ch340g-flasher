@@ -1,7 +1,7 @@
-use config::Config;
 use nix::sys::termios::{self, BaudRate};
-use serde::Deserialize;
 use std::io::{self, Read, Write};
+use serde::Deserialize;
+use config::Config;
 
 #[derive(Debug, Deserialize)]
 struct Settings {
@@ -49,10 +49,7 @@ fn speed_to_baudrate(speed: u32) -> Option<termios::BaudRate> {
 fn configure_and_test_serial_port(port_path: &str, speed: termios::BaudRate) -> io::Result<()> {
     println!("Opening serial port: {}", port_path);
 
-    let mut port = std::fs::File::options()
-        .read(true)
-        .write(true)
-        .open(port_path)?;
+    let mut port = std::fs::File::options().read(true).write(true).open(port_path)?;
 
     // Configure the port
     println!("Configuring serial port...");
@@ -133,8 +130,7 @@ fn test_sync_command(port: &mut std::fs::File) -> io::Result<()> {
     println!("\n=== ESP8266 Bootloader Sync Test ===");
 
     // SLIP-encoded ESP_SYNC command
-    // https://docs.espressif.com/projects/esptool/en/latest/esp8266/advanced-topics/serial-protocol.html
-    // https://docs.espressif.com/projects/esptool/en/latest/esp8266/advanced-topics/serial-protocol.html#commands
+    // Send sync frame
     let sync_frame = vec![
         0xC0, // SLIP start
         0x00, // Always 0x00 for requests
@@ -147,34 +143,27 @@ fn test_sync_command(port: &mut std::fs::File) -> io::Result<()> {
         0x55, // 32 bytes of 0x55 0x55,
         0xC0, // SLIP end
     ];
-    // Send sync frame
+
     port.write_all(&sync_frame)?;
     port.flush()?;
-    println!("Sent sync frame: {:02X?}", sync_frame);
+    println!("Sent sync frame: {:?}", sync_frame);
 
     let mut buffer = [0u8; 128];
     let mut response = Vec::new();
-
-    for _ in 0..3 {
+    loop {
         match port.read(&mut buffer) {
             Ok(0) => break, // EOF or no more data
-            Ok(n) => {
-                response.extend_from_slice(&buffer[..n]);
-                if buffer[0] == 0xC0 && n > 1 && buffer[1] == 0x00 {
-                    println!("✓ ESP8266 responded to sync command!");
-                }
-                // break;
+            Ok(n) => response.extend_from_slice(&buffer[..n]),
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // Timeout or non-blocking read with no data
+                break;
             }
-            Err(e) => {
-                println!("Error reading: {:?}", e);
-                return Err(e);
-            }
+            Err(e) => return Err(e.into()),
         }
     }
 
-    println!("Received: {:02X?}", response);
-
-    Ok(())
+    // Now 'response' contains all the bytes read
+    println!("Full response: {:02X?}", response);    Ok(())
 }
 
 fn config_setup() -> Result<Settings, config::ConfigError> {
@@ -198,10 +187,7 @@ fn main() -> io::Result<()> {
 
     // Check if port exists
     if !std::path::Path::new(&settings.serial_interface).exists() {
-        eprintln!(
-            "Error: Serial port {} does not exist",
-            &settings.serial_interface
-        );
+        eprintln!("Error: Serial port {} does not exist", &settings.serial_interface);
         return Ok(());
     }
 
